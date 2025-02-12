@@ -1,0 +1,583 @@
+using System.Formats.Asn1;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+
+// STARTING VARIABLES AND ALGORITHM //
+int matrixHeight = 0;
+int matrixLength = 0;
+int numberOfMines = 0;
+SetUpMatrix();
+
+// MATRIX VARIABLES //
+string[,] matrix = new string[matrixHeight, matrixLength];
+int intRowIndex = 0;
+int intColumnIndex = 64;
+int rowIndexPadSpace = 3 + matrixHeight.ToString().Length;
+string rowIndex = "";
+string columnLetter = "";
+string[] playerCoordinates = new string[2];
+string playerInput = "";
+
+// MINES VARIABLES //
+int[,] mineLocations = new int[numberOfMines, 2];
+int[,] repeatedMinesArray = new int[numberOfMines, 2];
+var random = new Random();
+
+// METAGAME VARIABLES //
+string lastClickedSquareDrawing = "";
+int[] lastClickedSquareCoordinates = new int[2];
+bool plantedMines = false;
+bool keepPlaying = true;
+string finalMessage = "";
+string playerAnswer = "";
+
+// GAME LOOP //
+InitializeMatrix();
+
+while (keepPlaying)
+{
+    ShowMatrix();
+    ClickSquare();
+
+    if (!plantedMines) PlantMines();
+
+    CleanSurroundingArea();
+    NumberEmptySquares();
+
+    if (!CheckExplotion()) CheckVictory();
+
+    if (!keepPlaying) EndGameMenue();
+}
+
+// METHOD DECLARATIONS //
+void ShowMatrix()
+{
+    Console.Clear();
+
+    for (int i = 0; i < matrix.GetLength(0); i++)
+    {
+        for (int j = 0; j < matrix.GetLength(1); j++)
+        {
+            if (i == 0 && j == 0)
+            {
+                Console.Write(matrix[i, j].PadRight(rowIndexPadSpace));
+            }
+            else if (i > 0 && j == 0)
+            {
+                Console.Write(matrix[i, j].PadRight(rowIndexPadSpace));
+            }
+            else
+            {
+                Console.Write(matrix[i, j]);
+            }
+        }
+
+        Console.Write(Environment.NewLine);
+    }
+
+    Console.Write(Environment.NewLine);
+}
+
+void ClickSquare()
+{
+
+    ValidatePlayerInput();
+
+    // check if row index is found inside matrix
+    for (int i = 0; i < matrix.GetLength(0); i++)
+    {
+        if (matrix[i, 0].Equals(playerCoordinates[0]))
+        {
+            // if row index was found, then check if column letter is also found inside matrix
+            for (int j = 0; j < matrix.GetLength(1); j++)
+            {
+                if (matrix[0, j].Equals(playerCoordinates[1]))
+                {
+                    // if column and row were found, check if selected square is still covered
+                    if (matrix[i, j] == "[#]")
+                    {
+                        // if selected square is covered, check if it contains a hidden mine
+                        for (int k = 0; k < mineLocations.GetLength(0); k++)
+                        {
+                            // if hidden mine was found, set up for ending game flow and return
+                            if (i == mineLocations[k, 0] && j == mineLocations[k, 1])
+                            {
+                                matrix[i, j] = "[X]";
+                                lastClickedSquareDrawing = matrix[i, j];
+                                return;
+                            }
+                        }
+
+                        // if no hidden mine found under covered square, clean clicked square
+                        matrix[i, j] = "[ ]";
+                        lastClickedSquareDrawing = matrix[i, j];
+                        lastClickedSquareCoordinates[0] = i;
+                        lastClickedSquareCoordinates[1] = j;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void PlantMines()
+{
+    // iterate over the mines location array to put selected number of validated mines into it
+    for (int i = 0; i < mineLocations.GetLength(0); i++)
+    {
+        // iterate over below process to make sure all mines are correctly planted, one at a time
+        bool planted = false;
+
+        while (!planted)
+        {
+            bool repeatedMine = false;
+
+            // generates random numbers for the mine coordinates, which will map to random matrix coordinates
+            mineLocations[i, 0] = random.Next(1, matrixHeight);
+            mineLocations[i, 1] = random.Next(1, matrixLength);
+
+            // checks if randomly generated mine coordinates aren't repeated to avoid mine superpositions 
+            int j = 0;
+
+            while (j < repeatedMinesArray.GetLength(0))
+            {
+                if (mineLocations[i, 0] == repeatedMinesArray[j, 0] && mineLocations[i, 1] == repeatedMinesArray[j, 1])
+                {
+                    repeatedMine = true;
+                }
+
+                j++;
+            }
+
+            // if randomly generated coordinates don't direct to an empty matrix square and repeated mine, put the validated mine coordiates into the mines array 
+            if (matrix[mineLocations[i, 0], mineLocations[i, 1]] == "[#]" && !repeatedMine)
+            {
+                repeatedMinesArray[i, 0] = mineLocations[i, 0];
+                repeatedMinesArray[i, 1] = mineLocations[i, 1];
+                planted = true;
+            }
+        }
+    }
+
+    plantedMines = true;
+}
+
+bool CheckExplotion()
+{
+    // if last clicked square was a mine, show "X" in matrix and follow ending game flow
+    if (lastClickedSquareDrawing == "[X]")
+    {
+        keepPlaying = false;
+        finalMessage = $"\tX__X{Environment.NewLine}{Environment.NewLine}Uppss! You setped on a mine - YOU LOSE!";
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+void CleanSurroundingArea()
+{
+    //clean a square area around the last clicked square inside matrix borders, except for hidden mines
+    for (int i = 0; i < matrix.GetLength(0); i++)
+    {
+        for (int j = 0; j < matrix.GetLength(1); j++)
+        {
+            if (i == lastClickedSquareCoordinates[0] && j == lastClickedSquareCoordinates[1])
+            {
+                int originalI = i;
+                int originalJ = j;
+
+                int modifierI = -1;
+                int modifierJ = -1;
+
+                while (modifierI < 2)
+                {
+                    i += modifierI;
+
+                    while (modifierJ < 2)
+                    {
+                        j += modifierJ;
+
+                        ClearSquare(CheckForMine(KeepInsideMatrix(i, j)));
+
+                        j = originalJ;
+                        modifierJ++;
+                    }
+
+                    i = originalI;
+                    modifierJ = -1;
+                    modifierI++;
+                }
+            }
+        }
+    }
+}
+
+int[] KeepInsideMatrix(int i, int j)
+{
+    // checks if any of the selected-square-for-clearance coordinates are outside matrix parameters. If so, changes the coordinates to keep them just inside the matrix boundaries and avoid exception
+    int[] insideMatrixCoordinates = new int[2];
+
+    if (i < 1) i = 1;
+    if (j < 1) j = 1;
+    if (i == matrixHeight) i = matrixHeight - 1;
+    if (j == matrixLength) j = matrixLength - 1;
+
+    insideMatrixCoordinates[0] = i;
+    insideMatrixCoordinates[1] = j;
+
+    return insideMatrixCoordinates;
+}
+
+int[] CheckForMine(int[] insideMatrixCoordinates)
+{
+    // check if corrected matrix coordinates of square-to-be-cleared coincides with a mine coordinates
+    for (int k = 0; k < mineLocations.GetLength(0); k++)
+    {
+        // if coincides with hidden mine, change square-to-be-cleared coordinates to "0,0" to identify later that it shouldn't be cleared
+        if (insideMatrixCoordinates[0] == mineLocations[k, 0] && insideMatrixCoordinates[1] == mineLocations[k, 1])
+        {
+            insideMatrixCoordinates[0] = 0;
+            insideMatrixCoordinates[1] = 0;
+
+            return insideMatrixCoordinates;
+        }
+    }
+
+    return insideMatrixCoordinates;
+}
+
+void ClearSquare(int[] insideMatrixCoordinates)
+{
+    // if square-to-be-cleared coordinates are "0,0", then the original sqaure coordinates contained a hidden mine and won't be cleared 
+    if (insideMatrixCoordinates[0] != 0 && insideMatrixCoordinates[1] != 0)
+    {
+        // clear selected surrounding sqaure if it doesn't contain a hidden mine and it is within matrix boundaries
+        matrix[insideMatrixCoordinates[0], insideMatrixCoordinates[1]] = "[ ]";
+    }
+}
+
+void NumberEmptySquares()
+{
+    //iterates over the matrix until finding a cleaned square
+    for (int i = 0; i < matrix.GetLength(0); i++)
+    {
+        for (int j = 0; j < matrix.GetLength(1); j++)
+        {
+            if (matrix[i, j] == "[ ]")
+            {
+                // when a clean square is found, sets up an iteration cycle that looks for hidden mines in the surrounding square
+                int minesInArea = 0;
+
+                int originalI = i;
+                int originalJ = j;
+
+                int modifierI = -1;
+                int modifierJ = -1;
+
+                while (modifierI < 2)
+                {
+                    i += modifierI;
+
+                    while (modifierJ < 2)
+                    {
+                        j += modifierJ;
+
+                        for (int k = 0; k < mineLocations.GetLength(0); k++)
+                        {
+                            // checks if actual coordinates of the surrounding square are inside the matrix boundaries
+                            if (CheckInsideMatrix(i, j))
+                            {
+                                // if surrounding square coordinates are inside matrix boundaries, then add 1 to the mine counter variable
+                                if (i == mineLocations[k, 0] && j == mineLocations[k, 1])
+                                {
+                                    minesInArea++;
+                                }
+                            }
+                        }
+
+                        j = originalJ;
+                        modifierJ++;
+                    }
+
+                    i = originalI;
+                    modifierJ = -1;
+                    modifierI++;
+                }
+
+                // after the iteration is done around the selected square surrounding area, write the number of surrounding mines in it
+                if (minesInArea > 0)
+                {
+                    matrix[i, j] = "[" + minesInArea.ToString() + "]";
+                }
+            }
+        }
+    }
+}
+
+bool CheckInsideMatrix(int i, int j)
+{
+    if (i > 0 && i < matrixHeight && j > 0 && j < matrixLength)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+void CheckVictory()
+{
+    //
+    int coveredSquaresLeft = 0;
+
+    for (int i = 1; i < matrix.GetLength(0); i++)
+    {
+        for (int j = 1; j < matrix.GetLength(1); j++)
+        {
+            if (matrix[i, j] == "[#]")
+            {
+                coveredSquaresLeft++;
+            }
+        }
+    }
+
+    if (coveredSquaresLeft == numberOfMines)
+    {
+
+        for (int i = 1; i < matrix.GetLength(0); i++)
+        {
+            for (int j = 1; j < matrix.GetLength(1); j++)
+            {
+                if (matrix[i, j] == "[#]")
+                {
+                    matrix[i, j] = "[X]";
+                }
+                else
+                {
+                    matrix[i, j] = "[ ]";
+                }
+            }
+        }
+
+        finalMessage = $"\t^__^{Environment.NewLine}{Environment.NewLine}Congrats! You isolated all the mines - YOU WON!";
+        keepPlaying = false;
+    }
+}
+
+void EndGameMenue()
+{
+    ShowMatrix();
+    Console.WriteLine($"{finalMessage}{Environment.NewLine}");
+    Console.Write("Want to play again? (y/n): ");
+    playerAnswer = Console.ReadLine().Trim().ToLower();
+
+    if (playerAnswer == "y")
+    {
+        keepPlaying = true;
+        //playAgain = true;
+        ResetMatrix();
+    }
+    else
+    {
+        Console.Clear();
+    }
+}
+
+void ResetMatrix()
+{
+    // reset starting variables and run algo
+    matrixHeight = 0;
+    matrixLength = 0;
+    numberOfMines = 0;
+    SetUpMatrix();
+
+    // reset matrix variables
+    intRowIndex = 0;
+    intColumnIndex = 64;
+    rowIndexPadSpace = 3 + matrixHeight.ToString().Length;
+    matrix = new string[matrixHeight, matrixLength];
+    rowIndex = "";
+    columnLetter = "";
+    string[] playerCoordinates = new string[2];
+    string playerInput = "";
+
+    // reset mines variables
+    mineLocations = new int[numberOfMines, 2];
+    repeatedMinesArray = new int[numberOfMines, 2];
+
+    // reset metagame variables
+    lastClickedSquareDrawing = "";
+    lastClickedSquareCoordinates = new int[2];
+    plantedMines = false;
+
+    InitializeMatrix();
+}
+
+void SetUpMatrix()
+{
+    Console.Clear();
+    Console.WriteLine($"Welcome to MinesSweeper!{Environment.NewLine}");
+    CheckMatrixHeight();
+    CheckMatrixLength();
+    CheckMinesNumber();
+}
+
+void CheckMatrixHeight()
+{
+    Console.Write($"Choose Matrix Height (min 2): ");
+    matrixHeight = int.Parse(Console.ReadLine()) + 1;
+
+    do
+    {
+        if (matrixHeight - 1 < 2)
+        {
+            Console.Clear();
+            Console.Write($"The matrix height can't be less than 2. Enter a valid matrix length: ");
+            matrixHeight = int.Parse(Console.ReadLine()) + 1;
+        }
+
+    } while (matrixHeight - 1 < 2);
+}
+
+void CheckMatrixLength()
+{
+    Console.Write($"Choose Matrix Length (min 1, max 26): ");
+    matrixLength = int.Parse(Console.ReadLine()) + 1;
+
+    do
+    {
+        if (matrixLength - 1 > 26 || matrixLength - 1 < 1)
+        {
+            Console.Clear();
+            Console.Write($"Matrix Height: {matrixHeight - 1}{Environment.NewLine}");
+            Console.Write($"The matrix length can't be less than 1 or more than 26. Enter a valid matrix length: ");
+            matrixLength = int.Parse(Console.ReadLine()) + 1;
+        }
+
+    } while (matrixLength - 1 > 26 || matrixLength - 1 < 1);
+
+}
+
+void CheckMinesNumber()
+{
+    Console.Write($"Choose the number of hidden mines: ");
+    numberOfMines = int.Parse(Console.ReadLine());
+
+    do
+    {
+        if (numberOfMines >= ((matrixHeight - 1) * (matrixLength - 1)) || numberOfMines < 1)
+        {
+            Console.Clear();
+            Console.Write($"Matrix Height: {matrixHeight - 1}{Environment.NewLine}");
+            Console.Write($"Matrix Length: {matrixLength - 1}{Environment.NewLine}");
+            Console.Write($"The number of mines ({numberOfMines}) can't be 0, nor it can be equal to or bigger than the product of matrix height times matrix length ({(matrixHeight - 1) * (matrixLength - 1)}).{Environment.NewLine}Enter a new number of hidden mines: ");
+            numberOfMines = int.Parse(Console.ReadLine());
+        }
+
+    } while (numberOfMines >= ((matrixHeight - 1) * (matrixLength - 1)));
+}
+
+void InitializeMatrix()
+{
+    for (int i = 0; i < matrix.GetLength(0); i++)
+    {
+        for (int j = 0; j < matrix.GetLength(1); j++)
+        {
+            if (i == 0 && j == 0)
+            {
+                matrix[i, j] = " ";
+            }
+            else if (i == 0 && j > 0)
+            {
+                intColumnIndex++;
+                string stringColumnIndex = ((char)intColumnIndex).ToString();
+                matrix[i, j] = "[" + stringColumnIndex + "]";
+            }
+            else if (i > 0 && j == 0)
+            {
+                intRowIndex++;
+                string stringRowIndex = Convert.ToString(intRowIndex);
+                matrix[i, j] = "[" + stringRowIndex + "]";
+            }
+            else
+            {
+                matrix[i, j] = "[#]";
+            }
+        }
+    }
+}
+
+void ValidatePlayerInput()
+{
+    // prompt and get player input
+    Console.WriteLine($"\t°__°{Environment.NewLine}");
+    Console.Write($"Click on a square by entering its row index and column letter in any order: ");
+    playerInput = Console.ReadLine().Trim().ToUpper();
+
+    string validationPattern = @"^[A-Z][0-9]+$|^[0-9]+[A-Z]$";
+    bool insideMatrixBoundaries = false;
+
+    do
+    {
+        // validate that the player input is composed of any number of consecutive integers and one letter, or the other way around
+        while (!Regex.IsMatch(playerInput, validationPattern))
+        {
+            Console.Clear();
+            ShowMatrix();
+            Console.WriteLine($"\t°__°{Environment.NewLine}");
+            Console.Write($"Invalid entry. The coordinates need to be made of only the following two types of characters in any order: the column (A, B, C, etc.) and row (1, 12, 35, etc.){Environment.NewLine}Enter valid coordinates: ");
+            playerInput = Console.ReadLine().Trim().ToUpper();
+        }
+
+        // combine all the player input Integers into one string array item, and the letter into another string array item
+        string[] playerInputArray = playerInput.Select(a => a.ToString()).ToArray();
+        int count = 0;
+        rowIndex = "";
+        columnLetter = "";
+
+        while (count < playerInputArray.Length)
+        {
+            if (int.TryParse(playerInputArray[count], out int integer))
+            {
+                rowIndex += integer.ToString();
+                count++;
+            }
+            else
+            {
+                columnLetter = playerInputArray[count];
+                count++;
+            }
+        }
+
+        // format player coordinates in the matrix style
+        playerCoordinates[0] = "[" + rowIndex + "]";
+        playerCoordinates[1] = "[" + columnLetter + "]";
+
+        // check if player input is within the matrix boundaries
+        if (int.Parse(rowIndex) > 0 && int.Parse(rowIndex) < matrixHeight)
+        {
+            for (int i = 0; i < matrix.GetLength(0); i++)
+            {
+                for (int j = 0; j < matrix.GetLength(1); j++)
+                {
+                    if (playerCoordinates[1] == matrix[i, j])
+                    {
+                        insideMatrixBoundaries = true;
+                    }
+                }
+            }
+        }
+
+        // prompt the player to enter a correct input
+        if (!insideMatrixBoundaries)
+        {
+            ShowMatrix();
+            Console.WriteLine($"\t°__°{Environment.NewLine}");
+            Console.Write($"Invalid entry; your input needs to be inside the matrix boundaries. Enter a valid coordinates: ");
+            playerInput = Console.ReadLine().Trim().ToUpper();
+        }
+
+    } while (!insideMatrixBoundaries);
+}
